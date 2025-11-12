@@ -1,0 +1,70 @@
+name: CI (Docker) → push code on success
+
+on:
+  push:
+    branches: ["**"]          # run on all branches; tweak if needed
+  workflow_dispatch:
+
+permissions:
+  contents: write             # required to push back using GITHUB_TOKEN
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-in-docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # (Optional) quick host-side lint/format before Docker build
+      - name: Set up Python (host)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev tools (host) [optional]
+        run: |
+          python -m pip install -U pip
+          pip install black isort || true
+
+      - name: Auto-format [optional]
+        run: |
+          black . || true
+          isort . || true
+
+      # ---- The gate: build the Docker "test" stage
+      # Your Dockerfile should have:
+      #   FROM deps AS test
+      #   COPY . .
+      #   RUN pytest -q
+      - name: Build Docker test stage
+        run: |
+          docker build --target test -t app-test:${{ github.sha }} .
+
+      # If we got here, the Docker test build passed.
+
+      - name: Commit changes (only if any)
+        id: commit
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore(ci): auto-format after successful Docker build [skip ci]"
+            echo "committed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes to commit."
+            echo "committed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push back to branch
+        if: steps.commit.outputs.committed == 'true'
+        run: |
+          git push origin HEAD:${GITHUB_REF_NAME}
