@@ -1,31 +1,34 @@
 # AquaIntel DWLR Dashboard — with ntfy push notifications (no MQTT)
 # Drop-in replacement file
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
 from datetime import datetime
-from sklearn.linear_model import LinearRegression
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
 import requests  # for ntfy push
+import streamlit as st
+from sklearn.linear_model import LinearRegression
 
 st.set_page_config(page_title="AquaIntel • DWLR Dashboard", layout="wide")
 
 # ===============================
 # Theme colors (blue scheme)
 # ===============================
-PRIMARY_DARK = "#0d47a1"   # deep blue
+PRIMARY_DARK = "#0d47a1"  # deep blue
 PRIMARY = "#1565c0"
 PRIMARY_LIGHT = "#1976d2"
 ACCENT = "#42a5f5"
 GRAD_1 = "#0d47a1"
 GRAD_2 = "#1976d2"
 
+
 # ===============================
 # Theming / UI bits
 # ===============================
 def local_css():
-    st.markdown(f"""
+    st.markdown(
+        f"""
         <style>
         .block-container {{ padding-top: 5.0rem; }}
         .stMetric {{ font-size: 1.3rem; font-weight: bold; }}
@@ -62,7 +65,10 @@ def local_css():
         }}
         [data-testid="stSidebar"] .ai-sb-brand a:hover {{ opacity: .95; }}
         </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
+
 
 def top_navbar():
     st.markdown(
@@ -71,8 +77,9 @@ def top_navbar():
             <div class="ai-logo">💧 AquaIntel <span style="opacity:.85;font-size:.95rem;margin-left:6px;">DWLR</span></div>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
 
 def hero_banner():
     st.markdown(
@@ -85,8 +92,9 @@ def hero_banner():
             </p>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
 
 def footer():
     st.markdown(
@@ -96,8 +104,9 @@ def footer():
             Made with ❤️ using Streamlit · <span style="color:{PRIMARY}">AquaIntel</span>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
 
 # ===============================
 # Data loading & mapping
@@ -106,31 +115,46 @@ def footer():
 def load_data(file, dayfirst=False):
     with st.spinner("Loading data..."):
         try:
-            df = pd.read_csv(file, low_memory=False, parse_dates=["Date"], dayfirst=dayfirst)
+            df = pd.read_csv(
+                file, low_memory=False, parse_dates=["Date"], dayfirst=dayfirst
+            )
         except Exception:
             df = pd.read_csv(file, low_memory=False)
             if "Date" in df.columns:
-                df["Date"] = pd.to_datetime(df["Date"], errors="coerce", dayfirst=dayfirst)
+                df["Date"] = pd.to_datetime(
+                    df["Date"], errors="coerce", dayfirst=dayfirst
+                )
         if "Date" in df.columns:
             df = df.sort_values("Date")
     return df
 
+
 def column_mapper(df):
     st.sidebar.subheader("🗂️ Column Mapper")
-    expected = ["Date", "Water_Level_m", "Temperature_C", "Rainfall_mm", "Dissolved_Oxygen_mg_L"]
+    expected = [
+        "Date",
+        "Water_Level_m",
+        "Temperature_C",
+        "Rainfall_mm",
+        "Dissolved_Oxygen_mg_L",
+    ]
     mapping = {}
     for col in expected:
         options = [None] + list(df.columns)
         default_idx = options.index(col) if col in df.columns else 0
-        selected = st.sidebar.selectbox(f"Map '{col}' to:", options, index=default_idx, key=f"map_{col}")
+        selected = st.sidebar.selectbox(
+            f"Map '{col}' to:", options, index=default_idx, key=f"map_{col}"
+        )
         if selected:
             mapping[col] = selected
     df = df.rename(columns={v: k for k, v in mapping.items() if v})
     return df
 
+
 # ===============================
 # Sidebar filters & thresholds
 # ===============================
+
 
 def _ensure_datetime_datecol(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -151,8 +175,8 @@ def _ensure_datetime_datecol(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df.copy()
     s = out["Date"].astype(str)
-    a = pd.to_datetime(s, errors="coerce")                     # default (MDY first)
-    b = pd.to_datetime(s, errors="coerce", dayfirst=True)      # DMY
+    a = pd.to_datetime(s, errors="coerce")  # default (MDY first)
+    b = pd.to_datetime(s, errors="coerce", dayfirst=True)  # DMY
     out["Date"] = a if a.notna().sum() >= b.notna().sum() else b
 
     # strip timezone if any slipped in
@@ -168,7 +192,9 @@ def add_sidebar_filters(df):
     df = _ensure_datetime_datecol(df)
     df = df.dropna(subset=["Date"]).copy()
     if df.empty:
-        st.error("No valid dates after parsing the 'Date' column. Please check your dataset or Column Mapper.")
+        st.error(
+            "No valid dates after parsing the 'Date' column. Please check your dataset or Column Mapper."
+        )
         st.stop()
 
     min_date = pd.to_datetime(df["Date"].min())
@@ -185,12 +211,14 @@ def add_sidebar_filters(df):
         value=st.session_state.date_range,
         min_value=min_date.to_pydatetime().date(),
         max_value=max_date.to_pydatetime().date(),
-        key="date_input_key"
+        key="date_input_key",
     )
 
     # Normalize to inclusive end-of-day timestamp
     start_ts = pd.Timestamp(start_date)
-    end_ts = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    end_ts = (
+        pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+    )
 
     st.session_state.date_range = (start_ts, end_ts)
 
@@ -200,10 +228,12 @@ def add_sidebar_filters(df):
     freq = st.sidebar.selectbox(
         "⏱️ Resample frequency",
         ["Daily (no resample)", "Weekly", "Monthly"],
-        key="resample_freq"
+        key="resample_freq",
     )
 
-    num_cols = [c for c in df.columns if c != "Date" and pd.api.types.is_numeric_dtype(df[c])]
+    num_cols = [
+        c for c in df.columns if c != "Date" and pd.api.types.is_numeric_dtype(df[c])
+    ]
     other_cols = [c for c in df.columns if c not in ["Date"] + num_cols]
     agg_map = {**{c: "mean" for c in num_cols}, **{c: "first" for c in other_cols}}
 
@@ -217,7 +247,9 @@ def add_sidebar_filters(df):
     available_cols = [c for c in df.columns if c != "Date"]
     numeric_cols = [c for c in available_cols if pd.api.types.is_numeric_dtype(df[c])]
     default_select = numeric_cols[:3]
-    y_cols = st.sidebar.multiselect("Numeric columns", numeric_cols, default=default_select, key="y_cols")
+    y_cols = st.sidebar.multiselect(
+        "Numeric columns", numeric_cols, default=default_select, key="y_cols"
+    )
 
     def _reset():
         st.session_state.date_range = (min_date, max_date)
@@ -236,31 +268,46 @@ def add_sidebar_filters(df):
 def sidebar_thresholds():
     st.sidebar.markdown("---")
     st.sidebar.markdown("## ⚙️ Thresholds")
-    safe_thr = st.sidebar.number_input("Safe water level threshold (m)", value=1.5, step=0.1)
-    critical_thr = st.sidebar.number_input("Critical water level threshold (m)", value=1.0, step=0.1)
+    safe_thr = st.sidebar.number_input(
+        "Safe water level threshold (m)", value=1.5, step=0.1
+    )
+    critical_thr = st.sidebar.number_input(
+        "Critical water level threshold (m)", value=1.0, step=0.1
+    )
     drop_thr = st.sidebar.number_input("Sudden drop detection (m)", value=2.0, step=0.1)
     return float(safe_thr), float(critical_thr), float(drop_thr)
+
 
 # ===============================
 # ntfy Push Helpers (simple HTTP push)
 # ===============================
-def ntfy_push(topic: str,
-              title: str,
-              message: str,
-              priority: str = "default",
-              server: str = "https://ntfy.sh",
-              auth_token: str | None = None,
-              timeout_sec: float = 10.0):
+def ntfy_push(
+    topic: str,
+    title: str,
+    message: str,
+    priority: str = "default",
+    server: str = "https://ntfy.sh",
+    auth_token: str | None = None,
+    timeout_sec: float = 10.0,
+):
     """
     Send a push via ntfy.
     Returns a dict: {"ok": bool, "status": int|None, "url": str, "text": str|None, "error": str|None}
     NOTE: HTTP headers must be latin-1; we sanitize the Title (and other headers) accordingly.
     """
+
     def _latin1_safe(s: str) -> str:
         replacements = {
-            "•": "-", "–": "-", "—": "-",
-            "“": '"', "”": '"', "’": "'", "…": "...",
-            "✓": "OK", "✅": "OK", "Δ": "Delta",
+            "•": "-",
+            "–": "-",
+            "—": "-",
+            "“": '"',
+            "”": '"',
+            "’": "'",
+            "…": "...",
+            "✓": "OK",
+            "✅": "OK",
+            "Δ": "Delta",
         }
         for k, v in replacements.items():
             s = s.replace(k, v)
@@ -276,11 +323,20 @@ def ntfy_push(topic: str,
         headers["Authorization"] = f"Bearer {auth_token}"
 
     try:
-        r = requests.post(url, data=message.encode("utf-8"), headers=headers, timeout=timeout_sec)
+        r = requests.post(
+            url, data=message.encode("utf-8"), headers=headers, timeout=timeout_sec
+        )
         ok = r.status_code in (200, 201)
-        return {"ok": ok, "status": r.status_code, "url": url, "text": r.text, "error": None}
+        return {
+            "ok": ok,
+            "status": r.status_code,
+            "url": url,
+            "text": r.text,
+            "error": None,
+        }
     except Exception as e:
         return {"ok": False, "status": None, "url": url, "text": None, "error": str(e)}
+
 
 def manual_alarm_button():
     st.sidebar.markdown("## 🧪 Manual Test")
@@ -319,11 +375,13 @@ def manual_alarm_button():
 
         st.session_state["manual_push_active"] = False
 
+
 # ===============================
 # Small helpers / KPIs / Panels
 # ===============================
 def dataset_info(df):
     st.write(f"**Dataset shape:** {df.shape[0]:,} rows × {df.shape[1]} columns")
+
 
 def kpi_cards(df):
     col1, col2, col3, col4 = st.columns(4)
@@ -336,11 +394,14 @@ def kpi_cards(df):
     col3.metric("🌧️ Total Rainfall (mm)", f"{rain:.1f}" if pd.notna(rain) else "—")
     col4.metric("🫧 Avg Dissolved O₂ (mg/L)", f"{do:.2f}" if pd.notna(do) else "—")
 
+
 def transparency_panel(df):
     if "Water_Level_m" in df and not df["Water_Level_m"].dropna().empty:
-        low = float(df["Water_Level_m"].min()); missing = int(df["Water_Level_m"].isna().sum())
+        low = float(df["Water_Level_m"].min())
+        missing = int(df["Water_Level_m"].isna().sum())
     else:
-        low = 0.0; missing = 0
+        low = 0.0
+        missing = 0
     total_rain = float(df["Rainfall_mm"].sum()) if "Rainfall_mm" in df else 0.0
     st.markdown(
         f"""
@@ -359,13 +420,18 @@ def transparency_panel(df):
             </p>
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
 
 def low_water_alert(df, safe_threshold: float):
     if "Water_Level_m" in df and not df["Water_Level_m"].dropna().empty:
         if df["Water_Level_m"].min() < safe_threshold:
-            st.warning(f"⚠️ Water level is below safe threshold ({safe_threshold:.2f} m)! Consider reducing extraction.", icon="💧")
+            st.warning(
+                f"⚠️ Water level is below safe threshold ({safe_threshold:.2f} m)! Consider reducing extraction.",
+                icon="💧",
+            )
+
 
 def government_notifications(df, critical_threshold: float):
     st.subheader("Government Notifications")
@@ -373,32 +439,50 @@ def government_notifications(df, critical_threshold: float):
         if df["Water_Level_m"].min() < critical_threshold:
             st.error("🚨 Water level critically low! Immediate action required.")
 
+
 # ===============================
 # Analysis components
 # ===============================
 def time_series_section(df, y_cols):
     st.subheader("Time Series")
     if not y_cols:
-        st.info("Select at least one numeric column from the sidebar."); return
+        st.info("Select at least one numeric column from the sidebar.")
+        return
     for col in y_cols:
         fig = px.line(df, x="Date", y=col, title=col)
         st.plotly_chart(fig, use_container_width=True)
+
 
 def correlation_heatmap(df):
     st.subheader("Correlation (Pearson)")
     num_df = df.select_dtypes(include=[np.number])
     if num_df.empty:
-        st.info("No numeric columns to compute correlations."); return
+        st.info("No numeric columns to compute correlations.")
+        return
     corr = num_df.corr()
-    fig = px.imshow(corr, text_auto=True, color_continuous_scale="Blues", title="Correlation Heatmap")
+    fig = px.imshow(
+        corr,
+        text_auto=True,
+        color_continuous_scale="Blues",
+        title="Correlation Heatmap",
+    )
     st.plotly_chart(fig, use_container_width=True)
+
 
 def scatter_matrix(df):
     st.subheader("Scatter Matrix")
     cols = st.multiselect(
         "Select variables for scatter matrix:",
-        [c for c in df.columns if c not in ["Date"] and pd.api.types.is_numeric_dtype(df[c])],
-        default=["Rainfall_mm", "Water_Level_m"] if "Rainfall_mm" in df and "Water_Level_m" in df else []
+        [
+            c
+            for c in df.columns
+            if c not in ["Date"] and pd.api.types.is_numeric_dtype(df[c])
+        ],
+        default=(
+            ["Rainfall_mm", "Water_Level_m"]
+            if "Rainfall_mm" in df and "Water_Level_m" in df
+            else []
+        ),
     )
     if len(cols) >= 2:
         fig = px.scatter_matrix(df, dimensions=cols)
@@ -406,11 +490,17 @@ def scatter_matrix(df):
     else:
         st.caption("Select at least two variables to plot scatter matrix.")
 
+
 def anomaly_detection(df):
     st.subheader("Simple Anomaly Detection (Z-score of rolling residuals)")
-    numeric_candidates = [c for c in df.columns if c not in ["Date"] and pd.api.types.is_numeric_dtype(df[c])]
+    numeric_candidates = [
+        c
+        for c in df.columns
+        if c not in ["Date"] and pd.api.types.is_numeric_dtype(df[c])
+    ]
     if not numeric_candidates:
-        st.info("No numeric columns found for anomaly detection."); return
+        st.info("No numeric columns found for anomaly detection.")
+        return
     target = st.selectbox("Select series for anomaly check", numeric_candidates)
     if target:
         work = df[["Date", target]].dropna().copy()
@@ -422,24 +512,47 @@ def anomaly_detection(df):
         anomalies = work[np.abs(work["z"]) >= thresh]
 
         fig = px.line(work, x="Date", y=target, title=f"Anomalies in {target}")
-        fig.add_scatter(x=work["Date"], y=work[target + "_roll"], mode="lines", name="Rolling mean (14d)")
-        fig.add_scatter(x=anomalies["Date"], y=anomalies[target], mode="markers", name="Anomaly",
-                        marker=dict(color="red", size=10))
+        fig.add_scatter(
+            x=work["Date"],
+            y=work[target + "_roll"],
+            mode="lines",
+            name="Rolling mean (14d)",
+        )
+        fig.add_scatter(
+            x=anomalies["Date"],
+            y=anomalies[target],
+            mode="markers",
+            name="Anomaly",
+            marker=dict(color="red", size=10),
+        )
         st.plotly_chart(fig, use_container_width=True)
 
         with st.expander("Anomaly table"):
-            st.dataframe(anomalies[["Date", target, "z"]].reset_index(drop=True), use_container_width=True)
+            st.dataframe(
+                anomalies[["Date", target, "z"]].reset_index(drop=True),
+                use_container_width=True,
+            )
 
         cfg = st.session_state.get("ntfy_cfg", {})
         if cfg.get("enabled") and not anomalies.empty:
             msg = f"{len(anomalies)} anomalies in '{target}' (z ≥ {thresh}). Range: {work['Date'].min()} → {work['Date'].max()}"
-            ntfy_push(cfg["topic"], "AquaIntel • Anomaly Alert", msg, priority="high",
-                      server=cfg["server"], auth_token=cfg["token"] or None)
+            ntfy_push(
+                cfg["topic"],
+                "AquaIntel • Anomaly Alert",
+                msg,
+                priority="high",
+                server=cfg["server"],
+                auth_token=cfg["token"] or None,
+            )
+
 
 def data_download(df):
     st.subheader("Download filtered data")
     csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download CSV", csv, file_name="DWLR_filtered.csv", mime="text/csv")
+    st.download_button(
+        "Download CSV", csv, file_name="DWLR_filtered.csv", mime="text/csv"
+    )
+
 
 def missingness(df):
     st.subheader("Missing Data Overview")
@@ -447,38 +560,56 @@ def missingness(df):
     miss.columns = ["Column", "Missing_Count"]
     st.dataframe(miss, use_container_width=True)
 
+
 def data_preview(df):
     st.subheader("Data Preview")
     st.dataframe(df.head(20), use_container_width=True)
+
 
 def data_quality_metrics(df):
     st.subheader("Data Quality Metrics")
     total = len(df)
     if total == 0:
-        st.info("No rows to compute data quality metrics."); return
+        st.info("No rows to compute data quality metrics.")
+        return
     miss = df.isna().sum()
     st.write(f"**Missing values:**")
     for col, val in miss.items():
         st.write(f"- {col}: {val} ({(val/total):.1%})")
+
 
 def historical_comparison(df):
     st.subheader("Historical Water Level Comparison")
     if "Date" in df and "Water_Level_m" in df:
         df_year = df.dropna(subset=["Date", "Water_Level_m"]).copy()
         if df_year.empty:
-            st.info("No data for historical comparison."); return
+            st.info("No data for historical comparison.")
+            return
         if df_year["Date"].dt.year.nunique() > 1:
             df_year["Year"] = df_year["Date"].dt.year
             yearly = df_year.groupby("Year")["Water_Level_m"].mean().reset_index()
-            fig = px.bar(yearly, x="Year", y="Water_Level_m", title="Average Water Level by Year",
-                         labels={"Water_Level_m": "Avg Water Level (m)"})
+            fig = px.bar(
+                yearly,
+                x="Year",
+                y="Water_Level_m",
+                title="Average Water Level by Year",
+                labels={"Water_Level_m": "Avg Water Level (m)"},
+            )
         else:
             df_year["MonthNum"] = df_year["Date"].dt.month
             monthly = df_year.groupby("MonthNum")["Water_Level_m"].mean().reset_index()
-            monthly["Month"] = monthly["MonthNum"].map(lambda m: pd.Timestamp(2000, m, 1).strftime("%b"))
-            fig = px.bar(monthly, x="Month", y="Water_Level_m", title="Average Water Level by Month",
-                         labels={"Water_Level_m": "Avg Water Level (m)"})
+            monthly["Month"] = monthly["MonthNum"].map(
+                lambda m: pd.Timestamp(2000, m, 1).strftime("%b")
+            )
+            fig = px.bar(
+                monthly,
+                x="Month",
+                y="Water_Level_m",
+                title="Average Water Level by Month",
+                labels={"Water_Level_m": "Avg Water Level (m)"},
+            )
         st.plotly_chart(fig, use_container_width=True)
+
 
 def illegal_extraction_detection(df, sudden_drop_threshold: float):
     st.subheader("Illegal Extraction Detection")
@@ -487,8 +618,12 @@ def illegal_extraction_detection(df, sudden_drop_threshold: float):
         w["diff"] = w["Water_Level_m"].diff()
         suspicious = w[w["diff"] < -abs(sudden_drop_threshold)]
         if not suspicious.empty:
-            st.error(f"🚨 {len(suspicious)} possible illegal extraction events detected!")
-            st.dataframe(suspicious[["Date", "Water_Level_m", "diff"]], use_container_width=True)
+            st.error(
+                f"🚨 {len(suspicious)} possible illegal extraction events detected!"
+            )
+            st.dataframe(
+                suspicious[["Date", "Water_Level_m", "diff"]], use_container_width=True
+            )
         else:
             st.success("No suspicious extraction events detected.")
 
@@ -497,8 +632,15 @@ def illegal_extraction_detection(df, sudden_drop_threshold: float):
             first = suspicious.iloc[0]
             diff_val = float(first["diff"]) if pd.notna(first["diff"]) else 0.0
             msg = f"{len(suspicious)} sudden drops detected (>{abs(sudden_drop_threshold)} m). First at {first['Date']} (Δ={diff_val:.2f} m)"
-            ntfy_push(cfg["topic"], "AquaIntel • Illegal Extraction", msg, priority="max",
-                      server=cfg["server"], auth_token=cfg["token"] or None)
+            ntfy_push(
+                cfg["topic"],
+                "AquaIntel • Illegal Extraction",
+                msg,
+                priority="max",
+                server=cfg["server"],
+                auth_token=cfg["token"] or None,
+            )
+
 
 def future_prediction(df):
     st.subheader("Future Water Level Prediction (Simple Linear Regression)")
@@ -506,41 +648,62 @@ def future_prediction(df):
         df_pred = df.dropna(subset=["Date", "Water_Level_m"]).copy()
         if len(df_pred) > 10:
             df_pred["ordinal_date"] = df_pred["Date"].map(datetime.toordinal)
-            X = df_pred[["ordinal_date"]]; y = df_pred["Water_Level_m"]
+            X = df_pred[["ordinal_date"]]
+            y = df_pred["Water_Level_m"]
             try:
                 model = LinearRegression().fit(X, y)
             except Exception:
-                st.info("Prediction model could not be fit (insufficient variance)."); return
+                st.info("Prediction model could not be fit (insufficient variance).")
+                return
             future_days = 30
             last_date = df_pred["Date"].max()
-            future_dates = [last_date + pd.Timedelta(days=i) for i in range(1, future_days + 1)]
+            future_dates = [
+                last_date + pd.Timedelta(days=i) for i in range(1, future_days + 1)
+            ]
             future_ord = np.array([d.toordinal() for d in future_dates]).reshape(-1, 1)
             preds = model.predict(future_ord)
-            pred_df = pd.DataFrame({"Date": future_dates, "Predicted_Water_Level_m": preds})
-            fig = px.line(df_pred, x="Date", y="Water_Level_m", title="Water Level & Prediction")
-            fig.add_scatter(x=pred_df["Date"], y=pred_df["Predicted_Water_Level_m"], mode="lines",
-                            name="Prediction", line=dict(dash="dot"))
+            pred_df = pd.DataFrame(
+                {"Date": future_dates, "Predicted_Water_Level_m": preds}
+            )
+            fig = px.line(
+                df_pred, x="Date", y="Water_Level_m", title="Water Level & Prediction"
+            )
+            fig.add_scatter(
+                x=pred_df["Date"],
+                y=pred_df["Predicted_Water_Level_m"],
+                mode="lines",
+                name="Prediction",
+                line=dict(dash="dot"),
+            )
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Not enough data for prediction.")
+
 
 # ===============================
 # Future-looking crop suggestions
 # ===============================
 def _estimate_future_conditions(df_full, months_ahead: int):
-    wl_future_mean = None; rain_future_per_month = None; temp_future_mean = None
+    wl_future_mean = None
+    rain_future_per_month = None
+    temp_future_mean = None
 
     if "Date" in df_full and "Water_Level_m" in df_full:
         df_wl = df_full.dropna(subset=["Date", "Water_Level_m"]).copy()
         if len(df_wl) > 10:
             df_wl["ordinal_date"] = df_wl["Date"].map(datetime.toordinal)
-            X = df_wl[["ordinal_date"]]; y = df_wl["Water_Level_m"]
+            X = df_wl[["ordinal_date"]]
+            y = df_wl["Water_Level_m"]
             try:
                 model = LinearRegression().fit(X, y)
                 last_date = pd.to_datetime(df_wl["Date"].max())
                 horizon_days = int(round(months_ahead * 30))
-                future_dates = [last_date + pd.Timedelta(days=i) for i in range(1, horizon_days + 1)]
-                future_ord = np.array([d.toordinal() for d in future_dates]).reshape(-1, 1)
+                future_dates = [
+                    last_date + pd.Timedelta(days=i) for i in range(1, horizon_days + 1)
+                ]
+                future_ord = np.array([d.toordinal() for d in future_dates]).reshape(
+                    -1, 1
+                )
                 wl_preds = model.predict(future_ord)
                 wl_future_mean = float(np.mean(wl_preds))
             except Exception:
@@ -550,7 +713,8 @@ def _estimate_future_conditions(df_full, months_ahead: int):
 
     if "Date" in df_full and "Rainfall_mm" in df_full:
         df_r = df_full.dropna(subset=["Date"]).copy()
-        end_dt = pd.to_datetime(df_r["Date"].max()); start_dt = end_dt - pd.Timedelta(days=90)
+        end_dt = pd.to_datetime(df_r["Date"].max())
+        start_dt = end_dt - pd.Timedelta(days=90)
         recent = df_r[(df_r["Date"] >= start_dt) & (df_r["Date"] <= end_dt)].copy()
         if not recent.empty and "Rainfall_mm" in recent:
             total = float(recent["Rainfall_mm"].sum())
@@ -564,7 +728,8 @@ def _estimate_future_conditions(df_full, months_ahead: int):
 
     if "Date" in df_full and "Temperature_C" in df_full:
         df_t = df_full.dropna(subset=["Date"]).copy()
-        end_dt = pd.to_datetime(df_t["Date"].max()); start_dt = end_dt - pd.Timedelta(days=90)
+        end_dt = pd.to_datetime(df_t["Date"].max())
+        start_dt = end_dt - pd.Timedelta(days=90)
         recent = df_t[(df_t["Date"] >= start_dt) & (df_t["Date"] <= end_dt)]
         if "Temperature_C" in recent and not recent["Temperature_C"].dropna().empty:
             temp_future_mean = float(recent["Temperature_C"].mean())
@@ -572,6 +737,7 @@ def _estimate_future_conditions(df_full, months_ahead: int):
             temp_future_mean = float(df_full["Temperature_C"].mean())
 
     return wl_future_mean, rain_future_per_month, temp_future_mean
+
 
 def _suggest_crops_from_estimates(wl, rpm, t):
     if wl is not None and rpm is not None:
@@ -585,8 +751,10 @@ def _suggest_crops_from_estimates(wl, rpm, t):
         crops = ["Millets (Sorghum, Pearl Millet)", "Chickpea", "Sunflower"]
     if t is not None and t > 32:
         for x in ["Chili", "Okra", "Sweet Potato"]:
-            if x not in crops: crops.append(x)
+            if x not in crops:
+                crops.append(x)
     return crops
+
 
 def crop_suggestions(df):
     st.subheader("🌱 Crop Suggestions (Current Filter)")
@@ -599,24 +767,42 @@ def crop_suggestions(df):
     else:
         st.info("Not enough data to suggest crops.")
 
+
 def crop_suggestions_period(df_full):
     st.subheader("🌱 Farmer Suggestions for the Next Period")
-    period = st.radio("Select period", ["Next 3 months", "Next 6 months", "Next 1 year"], horizontal=True)
+    period = st.radio(
+        "Select period",
+        ["Next 3 months", "Next 6 months", "Next 1 year"],
+        horizontal=True,
+    )
     months_map = {"Next 3 months": 3, "Next 6 months": 6, "Next 1 year": 12}
     months = months_map[period]
 
-    wl_future, rain_pm_future, temp_future = _estimate_future_conditions(df_full, months_ahead=months)
+    wl_future, rain_pm_future, temp_future = _estimate_future_conditions(
+        df_full, months_ahead=months
+    )
 
     c1, c2, c3 = st.columns([2, 2, 3])
     with c1:
-        st.metric("Expected Avg Water Level (m)", f"{wl_future:.2f}" if wl_future is not None else "—")
+        st.metric(
+            "Expected Avg Water Level (m)",
+            f"{wl_future:.2f}" if wl_future is not None else "—",
+        )
     with c2:
-        st.metric("Expected Avg Rainfall / month (mm)", f"{rain_pm_future:.1f}" if rain_pm_future is not None else "—")
+        st.metric(
+            "Expected Avg Rainfall / month (mm)",
+            f"{rain_pm_future:.1f}" if rain_pm_future is not None else "—",
+        )
     with c3:
-        st.metric("Expected Avg Temperature (°C)", f"{temp_future:.1f}" if temp_future is not None else "—")
+        st.metric(
+            "Expected Avg Temperature (°C)",
+            f"{temp_future:.1f}" if temp_future is not None else "—",
+        )
 
     crops = _suggest_crops_from_estimates(wl_future, rain_pm_future, temp_future)
-    st.success(f"For **{period.lower()}**, based on projected conditions, consider: **{', '.join(crops)}**")
+    st.success(
+        f"For **{period.lower()}**, based on projected conditions, consider: **{', '.join(crops)}**"
+    )
 
     cfg = st.session_state.get("ntfy_cfg", {})
     if cfg.get("enabled") and not st.session_state.get("manual_push_active", False):
@@ -626,8 +812,9 @@ def crop_suggestions_period(df_full):
             f"{period}: {', '.join(crops)}",
             priority="low",
             server=cfg["server"],
-            auth_token=cfg["token"] or None
+            auth_token=cfg["token"] or None,
         )
+
 
 # ===============================
 # Views
@@ -636,19 +823,25 @@ def farmer_view(df_full, df_filt, thresholds):
     safe_thr, _, drop_thr = thresholds
     st.header("👩‍🌾 Farmer Dashboard")
     transparency_panel(df_filt)
-    st.info("Get alerts on low water, cost-saving tips, and pump usage insights.", icon="🚜")
+    st.info(
+        "Get alerts on low water, cost-saving tips, and pump usage insights.", icon="🚜"
+    )
     kpi_cards(df_filt)
     low_water_alert(df_filt, safe_thr)
 
     st.subheader("Water Level Over Time")
     if "Water_Level_m" in df_filt.columns:
-        st.plotly_chart(px.line(df_filt, x="Date", y="Water_Level_m", title="Water Level (m)"),
-                        use_container_width=True)
+        st.plotly_chart(
+            px.line(df_filt, x="Date", y="Water_Level_m", title="Water Level (m)"),
+            use_container_width=True,
+        )
 
     st.subheader("Rainfall Over Time")
     if "Rainfall_mm" in df_filt.columns:
-        st.plotly_chart(px.bar(df_filt, x="Date", y="Rainfall_mm", title="Rainfall Over Time"),
-                        use_container_width=True)
+        st.plotly_chart(
+            px.bar(df_filt, x="Date", y="Rainfall_mm", title="Rainfall Over Time"),
+            use_container_width=True,
+        )
 
     crop_suggestions(df_filt)
     crop_suggestions_period(df_full)
@@ -656,18 +849,25 @@ def farmer_view(df_full, df_filt, thresholds):
     historical_comparison(df_filt)
 
     st.subheader("Pump Usage Tips")
-    st.markdown("- **Save costs:** Run pumps only when water level is above safe threshold.")
-    st.markdown(f"- **Alert:** If water level drops below {safe_thr:.2f} m, consider reducing extraction.")
+    st.markdown(
+        "- **Save costs:** Run pumps only when water level is above safe threshold."
+    )
+    st.markdown(
+        f"- **Alert:** If water level drops below {safe_thr:.2f} m, consider reducing extraction."
+    )
 
     illegal_extraction_detection(df_filt, drop_thr)
     future_prediction(df_filt)
+
 
 def researcher_view(df_filt, y_cols, thresholds):
     _, _, drop_thr = thresholds
     st.header("🔬 Researcher Dashboard")
     st.info("Analyze anomalies, correlations, and download full datasets.", icon="📊")
     kpi_cards(df_filt)
-    tab1, tab2, tab3, tab4 = st.tabs(["Time Series", "Correlation", "Anomalies", "Quality & Extraction"])
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["Time Series", "Correlation", "Anomalies", "Quality & Extraction"]
+    )
     with tab1:
         time_series_section(df_filt, y_cols)
         future_prediction(df_filt)
@@ -681,6 +881,7 @@ def researcher_view(df_filt, y_cols, thresholds):
         data_quality_metrics(df_filt)
         illegal_extraction_detection(df_filt, drop_thr)
     data_download(df_filt)
+
 
 def govt_view(df_filt, thresholds):
     _, critical_thr, drop_thr = thresholds
@@ -700,26 +901,34 @@ def govt_view(df_filt, thresholds):
 
     st.subheader("Water Level Trend")
     if "Water_Level_m" in df_filt:
-        fig = px.line(df_filt, x="Date", y="Water_Level_m", title="Water Level Over Time")
+        fig = px.line(
+            df_filt, x="Date", y="Water_Level_m", title="Water Level Over Time"
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Rainfall Trend")
     if "Rainfall_mm" in df_filt:
         fig = px.bar(df_filt, x="Date", y="Rainfall_mm", title="Rainfall Over Time")
         st.plotly_chart(fig, use_container_width=True)
+
 
 def citizen_view(df_filt):
     st.header("👥 Citizen Dashboard")
     transparency_panel(df_filt)
     st.subheader("Water Level Trend")
     if "Water_Level_m" in df_filt:
-        fig = px.line(df_filt, x="Date", y="Water_Level_m", title="Water Level Over Time")
+        fig = px.line(
+            df_filt, x="Date", y="Water_Level_m", title="Water Level Over Time"
+        )
         st.plotly_chart(fig, use_container_width=True)
     st.subheader("Rainfall Trend")
     if "Rainfall_mm" in df_filt:
         fig = px.bar(df_filt, x="Date", y="Rainfall_mm", title="Rainfall Over Time")
         st.plotly_chart(fig, use_container_width=True)
-    st.info("This dashboard provides a transparent summary of water and rainfall data for your area.")
+    st.info(
+        "This dashboard provides a transparent summary of water and rainfall data for your area."
+    )
+
 
 # ===============================
 # Main
@@ -735,8 +944,8 @@ def main():
         st.markdown(
             '<div class="ai-sb-brand">'
             '  <a href="#" onclick="window.location.reload(); return false;">💧 AquaIntel</a>'
-            '</div>',
-            unsafe_allow_html=True
+            "</div>",
+            unsafe_allow_html=True,
         )
 
     # Sidebar: User type selection
@@ -744,19 +953,24 @@ def main():
     user_type = st.sidebar.selectbox(
         "Choose your dashboard view",
         ["Farmer", "Government", "Researcher", "Citizen"],
-        key="user_type"
+        key="user_type",
     )
 
     # Sidebar: Data source selection
     st.sidebar.markdown("---")
     st.sidebar.markdown("## 📂 Data Source")
-    src = st.sidebar.radio("Select data source", ["Use sample (DWLR_Dataset_2023.csv)", "Upload CSV"])
+    src = st.sidebar.radio(
+        "Select data source", ["Use sample (DWLR_Dataset_2023.csv)", "Upload CSV"]
+    )
     dayfirst = st.sidebar.checkbox("Treat dates as Day-First (DD/MM/YYYY)", value=False)
 
     if src == "Upload CSV":
         uploaded = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
         if uploaded is None:
-            st.warning("Please upload a CSV to continue, or switch to the sample dataset."); st.stop()
+            st.warning(
+                "Please upload a CSV to continue, or switch to the sample dataset."
+            )
+            st.stop()
         df = load_data(uploaded, dayfirst=dayfirst)
     else:
         df = load_data("DWLR_Dataset_2023.csv", dayfirst=dayfirst)
@@ -767,16 +981,17 @@ def main():
     # Make sure 'Date' is proper datetime before anything else
     df = _ensure_datetime_datecol(df)
 
-
     # Basic checks
     if "Date" not in df.columns:
-        st.error("The dataset must contain a 'Date' column (map it via Column Mapper)."); st.stop()
+        st.error("The dataset must contain a 'Date' column (map it via Column Mapper).")
+        st.stop()
 
     # Keep a full copy for future suggestions
     df_full = df.copy()
 
     # Data preview & info (main area)
-    data_preview(df); dataset_info(df)
+    data_preview(df)
+    dataset_info(df)
 
     # Filters & thresholds (sidebar + main effects)
     df_filt, y_cols = add_sidebar_filters(df)
@@ -795,10 +1010,16 @@ def main():
     # --- Push Notifications (BOTTOM of the sidebar) ---
     st.sidebar.markdown("---")
     st.sidebar.markdown("## 🔔 Push Notifications")
-    use_ntfy = st.sidebar.checkbox("Enable ntfy push", value=True, help="Send pushes to your phone via ntfy")
-    ntfy_topic = st.sidebar.text_input("ntfy Topic", value="aquaintel-3fa7b2c9", help="Use a hard-to-guess string")
+    use_ntfy = st.sidebar.checkbox(
+        "Enable ntfy push", value=True, help="Send pushes to your phone via ntfy"
+    )
+    ntfy_topic = st.sidebar.text_input(
+        "ntfy Topic", value="aquaintel-3fa7b2c9", help="Use a hard-to-guess string"
+    )
     ntfy_server = st.sidebar.text_input("ntfy Server", value="https://ntfy.sh")
-    ntfy_token = st.sidebar.text_input("ntfy Auth Token (optional)", value="", type="password")
+    ntfy_token = st.sidebar.text_input(
+        "ntfy Auth Token (optional)", value="", type="password"
+    )
     st.session_state.ntfy_cfg = {
         "enabled": use_ntfy,
         "topic": ntfy_topic.strip(),
@@ -818,6 +1039,7 @@ def main():
             "- **Push notifications** use ntfy: subscribe to your topic in the ntfy app on your phone."
         )
     footer()
+
 
 if __name__ == "__main__":
     main()
